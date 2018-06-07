@@ -4,8 +4,27 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "ts-node --inspect=5858 src/server.ts",
+    "dev": "nodemon"
   },
   "author": "fel1ne",
-  "license": "AGPL-3.0-or-later"
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "discord.js": "^11.3.2",
+    "dotenv": "^6.0.0",
+    "erlpack": "github:hammerandchisel/erlpack",
+    "ffmpeg-binaries": "^3.2.2-3",
+    "lodash": "^4.17.10",
+    "node-opus": "^0.3.0",
+    "sodium": "^2.0.3",
+    "ytdl-core": "^0.20.4"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.14.109",
+    "@types/node": "^10.3.1",
+    "@types/youtube-dl": "^1.12.0",
+    "nodemon": "^1.17.5",
+    "ts-node": "^6.1.0",
+    "typescript": "^2.9.1"
+  }
 }
