@@ -1,4 +1,5 @@
-import {head,split,drop,truncate} from 'lodash'
+import {head,split,drop,truncate,clamp,round} from 'lodash'
+import { throws } from 'assert';
 
 const dotenv = require('dotenv').config()
 const ytdl = require('ytdl-core')
@@ -6,17 +7,38 @@ const Discord = require('discord.js')
 
 const client = new Discord.Client()
 
-class Queue { 
+function formatQueue(obj:any){
+    let que = obj;
+    if(!que.length) return 'Nothing in queue';
+
+    let res = []
+    que.forEach((ele,index) => {
+        res.push(`**${index+1}.** ${ele.title}`);
+    })
+    return res.join('\n');
+}
+
+function formatSec(num:number) {
+    let date = new Date(null);
+    date.setSeconds(num);
+
+    return date.toISOString().substr(14,5);
+}
+
+abstract class Queue { 
 	private q = []
 
-	public async add(url: string, user: number) {
+	public async add(url: string, user: string) {
 		try{
 			let info = await ytdl.getInfo(url)
-			if (info.length_seconds > 420) return 'too long'
+			let sdur = Number(info.length_seconds)
+			let sprint = formatSec(sdur)
+			if (sdur > 420) return 'too long'
 			this.q.push({
 				requester: user,
 				video_id: info.video_id,
-				title: info.title })
+				title: info.title,
+				length: sprint })
 			return info
 		}catch(err){
 			return err
@@ -29,7 +51,8 @@ class Queue {
 	}
 
 	protected getNext(): ArrayLike<any> {
-		return drop(this.q)
+		this.q = drop(this.q)
+		return this.q
 	}
 
 	protected lengthReadable(length : number) : string {
@@ -41,17 +64,35 @@ class Queue {
 	}
 }
 
+abstract class Command {
+	public command: string
+
+	constructor(command: string){
+		this.command = command
+	}
+
+	public on(func: ((arg?:string[]) => void)): void{
+		func()
+	}
+	
+}
+
 class Radio extends Queue {
 	private client: any
 	private connection: any
+	private dispatcher: any
+	public volume: number
+	public voice: string|number;
 
 	constructor(client: any, token: string, voice: string|number, text: string|number){
 		super()
 
 		this.client = client
 
-		this.client.login(token)
+		this.volume = 1
 
+		this.client.login(token)
+		this.voice = voice
 		this.joinVoice(voice)
 		this.commands(text)
 	}
@@ -68,7 +109,7 @@ class Radio extends Queue {
 
 	private commands(text: string|number): void{
 		client.on('message', msg => {
-			if(msg.channel.id != text) return
+			//if(msg.channel.id != text) return
 			let arg = split(msg.content, ' ')
 			let args = drop(arg)
 
@@ -82,23 +123,72 @@ class Radio extends Queue {
 					
 					break;
 				case '!skip':
-
-				case '!queue':
-					msg.reply(this.get(0))
+					if(Object.keys(this.get()).length == 0) { return msg.channel.send('There is nothing to skip!')}
+					msg.channel.send(`${head(this.get()).title} has been skipped!`)
+					//this.skip();
+					this.dispatcher.end()
 					break;
+				case '!queue':
+					let q = Array.from(this.get())
+					let cur = q.shift()
+
+					if(!cur) return msg.reply('The queue is empty, use ``!play <name/url>`` to add a song to the queue!')
+
+					let thumb =`https://i.ytimg.com/vi/${cur.video_id}/mqdefault.jpg`;
+
+					let embed = new Discord.RichEmbed()
+					.setAuthor('Currently Playing:')
+					.setDescription(`[${cur.title}](https://www.youtube.com/watch?v=${cur.video_id})\n*Length: ${cur.length} // Requested By: ${cur.requester}*`)
+					.setThumbnail(thumb)
+					.setColor(0o0)
+					.addField(`Queued [${q.length}]:`, formatQueue(q), true);
+
+            		msg.channel.send({embed});
+			
+		
+					break;
+
+				case '!volume':
+					if(!args.length) return msg.reply(`the volume is ${this.volume*100}`)
+
+					if(!msg.member.roles.find(r => r.id == "562033778030280706")) return msg.reply('You do not have permission to use this command.')
+
+					let vol = clamp(Number(head(args)),0,100)
+					if(!this.dispatcher) return msg.reply('Play something first to set the volume!')
+					this.volume = vol/100
+					this.dispatcher.setVolume(vol/100)
+
+					msg.reply(`Volume set to ${vol}%`)
+
+					break
+				// ------------------------ NON MUSIC STUFF ---------------------------
+				case '!lovet':
+					let r = round(Math.random()*100, 2 )
+
+					let rec = head(Array.from(msg.mentions.members.values()))
+					//<@${msg.author.id}>
+					msg.channel.send(`${msg.author} is ${r}% compatible with ${rec}`)
+					break;
+
 			}
 		})
 	}
 
-	private stream(info): void {
+	private stream(info) {
 		let stream = ytdl(`https://www.youtube.com/watch?v=${info.video_id}`, { filter: 'audioonly'})
-		let dispatcher = this.connection.playStream(stream, {seek:0, volume: 0.5})
-
-		
+		this.dispatcher = this.connection.playStream(stream, {seek:0, volume: 0.5})
+		console.log(`playing ${info.title}`)
+		this.dispatcher.on('end', y => {
+			let nq = this.getNext()
+			console.log(nq.length, nq)
+			if (nq.length > 0) {
+				setTimeout(() => {this.stream(head(nq))},250)
+			}
+		})
 	}
 
 	private addMessage(args: string[], msg: any, first = false) : void{
-		this.add(head(args), msg.author.id)
+		this.add(head(args), msg.author.username)
 			.then(info => {
 				let embed = new Discord.RichEmbed({
 					author: {
@@ -116,7 +206,6 @@ class Radio extends Queue {
 					}
 				});
 				if(first) this.stream(info)
-				console.log(this.get())
 				msg.channel.send(embed);
 			}).catch(console.log);
 	}
