@@ -1,5 +1,7 @@
-import {head,split,drop,truncate,clamp,round} from 'lodash'
+import {head,split,drop,truncate,clamp,round,random} from 'lodash'
 import { throws } from 'assert';
+import * as http from 'http';
+import Vibrant = require('node-vibrant')
 
 const dotenv = require('dotenv').config()
 const ytdl = require('ytdl-core')
@@ -7,8 +9,19 @@ const Discord = require('discord.js')
 
 const client = new Discord.Client()
 
-function formatQueue(obj:any){
-    let que = obj;
+const reqhand = (req,res) => {
+	console.log(req.url);
+	res.end('uwu');
+}
+
+const server = http.createServer(reqhand)
+
+server.listen(80, ()=> {
+	console.log(`Server listening on *:80`)
+})
+
+Array.prototype.formatQueue = function(){
+    let que = this;
     if(!que.length) return 'Nothing in queue';
 
     let res = []
@@ -18,11 +31,28 @@ function formatQueue(obj:any){
     return res.join('\n');
 }
 
-function formatSec(num:number) {
+Number.prototype.formatSec = function() {
     let date = new Date(null);
-    date.setSeconds(num);
+    date.setSeconds(this);
 
     return date.toISOString().substr(14,5);
+}
+
+declare global {
+	interface String{
+		isURL(): Boolean;
+	}
+	interface Number{
+		formatSec(): String;
+	}
+	interface Array<T>{
+		formatQueue(): any;
+	}
+}
+
+String.prototype.isURL = function(){
+    let regex = /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!\-\/]))?/
+    return regex.test(this);
 }
 
 abstract class Queue { 
@@ -32,7 +62,7 @@ abstract class Queue {
 		try{
 			let info = await ytdl.getInfo(url)
 			let sdur = Number(info.length_seconds)
-			let sprint = formatSec(sdur)
+			let sprint = sdur.formatSec()
 			if (sdur > 420) return 'too long'
 			this.q.push({
 				requester: user,
@@ -83,6 +113,7 @@ class Radio extends Queue {
 	private dispatcher: any
 	public volume: number
 	public voice: string|number;
+	private loop: boolean;
 
 	constructor(client: any, token: string, voice: string|number, text: string|number){
 		super()
@@ -101,6 +132,9 @@ class Radio extends Queue {
 		client.on('ready', () => {
 			console.log(`ready`)
 			let vc = client.channels.find('id', voice)
+			client.voiceConnections.array().forEach(c => {
+				c.disconnect()
+			}); 
 			vc.join()
 				.then(conn => this.connection = conn)
 				.catch(console.error)
@@ -115,13 +149,21 @@ class Radio extends Queue {
 
 			switch(head(arg)){
 				case '!play':
-					if(!args.length) return
+					//if(!args.length) return
+					//if(head(args).isURL()) return
+
+					console.log('passed tests')
 					
 					let first = false
 					if(!head(this.get())) first = true
 					this.addMessage(args, msg, first);
 					
 					break;
+				case '!delete':
+				client.voiceConnections.array().forEach(c => {
+					c.disconnect()
+				}); 
+				break;
 				case '!skip':
 					if(Object.keys(this.get()).length == 0) { return msg.channel.send('There is nothing to skip!')}
 					msg.channel.send(`${head(this.get()).title} has been skipped!`)
@@ -141,7 +183,7 @@ class Radio extends Queue {
 					.setDescription(`[${cur.title}](https://www.youtube.com/watch?v=${cur.video_id})\n*Length: ${cur.length} // Requested By: ${cur.requester}*`)
 					.setThumbnail(thumb)
 					.setColor(0o0)
-					.addField(`Queued [${q.length}]:`, formatQueue(q), true);
+					.addField(`Queued [${q.length}]:`, q.formatQueue(), true);
 
             		msg.channel.send({embed});
 			
@@ -149,11 +191,11 @@ class Radio extends Queue {
 					break;
 
 				case '!volume':
-					if(!args.length) return msg.reply(`the volume is ${this.volume*100}`)
+					if(!args.length) return msg.reply(`The volume is ${this.volume*100}%`)
 
 					if(!msg.member.roles.find(r => r.id == "562033778030280706")) return msg.reply('You do not have permission to use this command.')
 
-					let vol = clamp(Number(head(args)),0,100)
+					let vol = /*clamp(*/Number(head(args))/*,0,100)*/
 					if(!this.dispatcher) return msg.reply('Play something first to set the volume!')
 					this.volume = vol/100
 					this.dispatcher.setVolume(vol/100)
@@ -161,24 +203,47 @@ class Radio extends Queue {
 					msg.reply(`Volume set to ${vol}%`)
 
 					break
-				// ------------------------ NON MUSIC STUFF ---------------------------
-				case '!lovet':
-					let r = round(Math.random()*100, 2 )
+				case '!loop':
+					if(!msg.member.roles.find(r => r.id == "562033778030280706")) return msg.reply('You do not have permission to use this command.')
 
-					let rec = head(Array.from(msg.mentions.members.values()))
-					//<@${msg.author.id}>
-					msg.channel.send(`${msg.author} is ${r}% compatible with ${rec}`)
+					this.loop = !this.loop
+
+					msg.channel.send(`Looping toggled to ${this.loop}`)
 					break;
 
+				// ------------------------ NON MUSIC STUFF ---------------------------
+				case '!lovet':
+					let r = round(random(100,true), 2)
+
+					let rec = head(Array.from(msg.mentions.members.values()))
+					
+					if(!rec){
+						if(args.length > 0) return msg.channel.send(`${msg.author} is ${r}% compatible with ${args.join(' ')}`)
+						return msg.channel.send(`${msg.author} is ${r}% compatible with ${client.user}`)
+					} 
+					return msg.channel.send(`${msg.author} is ${r}% compatible with ${rec}`)
+					break;
+				case '!h':
+					let target = head(Array.from(msg.mentions.members.values()));
+
+					const hugs = ["peepokiss", "pepohug"]
+					let a = random(1)
+					const hug = client.emojis.find(emoji => emoji.name === hugs[a]);
+
+					if(!target) return msg.channel.send(`${msg.author} ${hug}`)
+					return msg.channel.send(`${target} ${hug}`)
+					break;
 			}
 		})
 	}
 
 	private stream(info) {
 		let stream = ytdl(`https://www.youtube.com/watch?v=${info.video_id}`, { filter: 'audioonly'})
-		this.dispatcher = this.connection.playStream(stream, {seek:0, volume: 0.5})
+		this.dispatcher = this.connection.playStream(stream, {seek:0, volume: 1})
 		console.log(`playing ${info.title}`)
 		this.dispatcher.on('end', y => {
+			if (y === 'Stream is not generating quickly enough.') console.log('Song ended.');
+			if(this.loop) return this.stream(head(this.get()))
 			let nq = this.getNext()
 			console.log(nq.length, nq)
 			if (nq.length > 0) {
