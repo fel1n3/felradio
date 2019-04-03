@@ -2,7 +2,6 @@ import {head,split,drop,truncate,clamp,round,random} from 'lodash'
 import { throws } from 'assert';
 import Vibrant = require('node-vibrant')
 
-const dotenv = require('dotenv').config()
 const ytdl = require('ytdl-core')
 const Discord = require('discord.js')
 

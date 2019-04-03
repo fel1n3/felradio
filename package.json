@@ -12,7 +12,6 @@
   "dependencies": {
     "canvas": "^2.4.1",
     "discord.js": "^11.4.2",
-    "dotenv": "^7.0.0",
     "erlpack": "github:hammerandchisel/erlpack",
     "ffmpeg-binaries": "^4.0.0",
     "lodash": "^4.17.11",
