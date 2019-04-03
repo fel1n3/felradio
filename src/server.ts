@@ -130,7 +130,7 @@ class Radio extends Queue {
 
 	private joinVoice(voice: string|number): void {
 		client.on('ready', () => {
-			console.log(`ready`)
+			console.log(`ready d`)
 			let vc = client.channels.find('id', voice)
 			client.voiceConnections.array().forEach(c => {
 				c.disconnect()

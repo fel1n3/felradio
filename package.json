@@ -19,6 +19,7 @@
     "node-opus": "^0.3.1",
     "node-vibrant": "^3.2.0-alpha",
     "sodium": "^3.0.2",
+    "uws": "^100.0.1",
     "ytdl-core": "^0.29.1"
   },
   "devDependencies": {
