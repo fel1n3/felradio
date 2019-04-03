@@ -1,6 +1,5 @@
 import {head,split,drop,truncate,clamp,round,random} from 'lodash'
 import { throws } from 'assert';
-import * as http from 'http';
 import Vibrant = require('node-vibrant')
 
 const dotenv = require('dotenv').config()
@@ -8,17 +7,6 @@ const ytdl = require('ytdl-core')
 const Discord = require('discord.js')
 
 const client = new Discord.Client()
-
-const reqhand = (req,res) => {
-	console.log(req.url);
-	res.end('uwu');
-}
-
-const server = http.createServer(reqhand)
-
-server.listen(80, ()=> {
-	console.log(`Server listening on *:80`)
-})
 
 Array.prototype.formatQueue = function(){
     let que = this;
