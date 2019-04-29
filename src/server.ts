@@ -1,11 +1,30 @@
+require('dotenv').config()
+
 import {head,split,drop,truncate,clamp,round,random} from 'lodash'
-import { throws } from 'assert';
+import {get as cget} from 'colornames'
+import { Client, Message, Role, GuildMember, VoiceChannel, RichEmbed} from 'discord.js'
+
 import Vibrant = require('node-vibrant')
+import * as ytdl from 'ytdl-core'
+import * as ytSearch from 'youtube-search'
 
-const ytdl = require('ytdl-core')
-const Discord = require('discord.js')
+import './starboard'
 
-const client = new Discord.Client()
+const client = new Client()
+
+const opts: ytSearch.YouTubeSearchOptions = {
+	maxResults: 1,
+	key: process.env.ytKey
+}
+
+declare global {
+	interface String{
+		isURL(): Boolean;
+	}
+	interface Array<T>{
+		formatQueue(): any;
+	}
+}
 
 Array.prototype.formatQueue = function(){
     let que = this;
@@ -18,28 +37,27 @@ Array.prototype.formatQueue = function(){
     return res.join('\n');
 }
 
-Number.prototype.formatSec = function() {
-    let date = new Date(null);
-    date.setSeconds(this);
-
-    return date.toISOString().substr(14,5);
-}
-
-declare global {
-	interface String{
-		isURL(): Boolean;
-	}
-	interface Number{
-		formatSec(): String;
-	}
-	interface Array<T>{
-		formatQueue(): any;
-	}
-}
-
 String.prototype.isURL = function(){
     let regex = /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!\-\/]))?/
     return regex.test(this);
+}
+
+function giveColor(msg: Message, role: Role, guser: GuildMember){
+	guser.addRole(role)
+        .catch(console.error)
+    return msg.channel.send(`Color \`\`${role.name}\`\` given to ${msg.author}`);
+}
+
+function pruneEmpty(msg: Message){
+	let i =  0
+	msg.guild.roles.array().forEach((role,index) => {
+		if(role.members.array().length === 0) {
+			i = i + 1
+			role.delete()
+				.catch(err => console.error)
+		}
+	})
+	return i
 }
 
 abstract class Queue { 
@@ -48,9 +66,12 @@ abstract class Queue {
 	public async add(url: string, user: string) {
 		try{
 			let info = await ytdl.getInfo(url)
+			let c = await Vibrant.from(`https://i.ytimg.com/vi/${info.video_id}/mqdefault.jpg`).getSwatches()
+			let color = !c['Vibrant'] ? 'RANDOM' : c['Vibrant'].getHex()
+			info.c = color
 			let sdur = Number(info.length_seconds)
-			let sprint = sdur.formatSec()
-			if (sdur > 420) return 'too long'
+			let sprint = this.lengthReadable(sdur)
+			//if (sdur > 420) return 'too long'
 			this.q.push({
 				requester: user,
 				video_id: info.video_id,
@@ -119,6 +140,8 @@ class Radio extends Queue {
 		client.on('ready', () => {
 			console.log(`ready d`)
 			let vc = client.channels.find('id', voice)
+			if(!(vc instanceof VoiceChannel)) return console.error('ID provided for voice channel is not a voice channel')
+
 			client.voiceConnections.array().forEach(c => {
 				c.disconnect()
 			}); 
@@ -128,6 +151,12 @@ class Radio extends Queue {
 		})
 	}
 
+	//private autoAssign(): void{
+//		client.on('guildMemberAdd', mem => {
+
+//		})
+//	}
+//
 	private commands(text: string|number): void{
 		client.on('message', msg => {
 			//if(msg.channel.id != text) return
@@ -136,13 +165,17 @@ class Radio extends Queue {
 
 			switch(head(arg)){
 				case '!play':
-					//if(!args.length) return
-					//if(head(args).isURL()) return
-
-					console.log('passed tests')
-					
 					let first = false
 					if(!head(this.get())) first = true
+
+					if(!head(args).isURL()) {
+						return ytSearch(args.join(' '), opts, (err, res) => {
+							if(err) return console.error
+
+							this.addMessage([res[0].link], msg, first)
+						})
+					}
+									
 					this.addMessage(args, msg, first);
 					
 					break;
@@ -165,14 +198,17 @@ class Radio extends Queue {
 
 					let thumb =`https://i.ytimg.com/vi/${cur.video_id}/mqdefault.jpg`;
 
-					let embed = new Discord.RichEmbed()
-					.setAuthor('Currently Playing:')
-					.setDescription(`[${cur.title}](https://www.youtube.com/watch?v=${cur.video_id})\n*Length: ${cur.length} // Requested By: ${cur.requester}*`)
-					.setThumbnail(thumb)
-					.setColor(0o0)
-					.addField(`Queued [${q.length}]:`, q.formatQueue(), true);
-
-            		msg.channel.send({embed});
+					Vibrant.from(thumb).getSwatches((err,res) => {
+						let embed = new RichEmbed()
+						.setAuthor('Currently Playing:')
+						.setDescription(`[${cur.title}](https://www.youtube.com/watch?v=${cur.video_id})\n*Length: ${cur.length} // Requested By: ${cur.requester}*`)
+						.setThumbnail(thumb)
+						.setColor(res['Vibrant'].getHex())
+						.addField(`Queued [${q.length}]:`, q.formatQueue(), true);
+	
+						msg.channel.send({embed});
+					})
+					
 			
 		
 					break;
@@ -220,17 +256,103 @@ class Radio extends Queue {
 					if(!target) return msg.channel.send(`${msg.author} ${hug}`)
 					return msg.channel.send(`${target} ${hug}`)
 					break;
+				case '!color':
+				case '!colour':
+					let guild = msg.member.guild
+
+					if(!head(args)) return
+					if(head(args).substr(0,1) == '#'){
+						msg.member.roles.array().forEach((val,i) => {
+							if(val.name.substr(0,1) != '#' && !cget(val.name)) return
+							//has a color
+							msg.member.removeRole(val)
+								.then(() => {
+									console.log(val.members.array(), val.members.array().length)
+									if(val.members.array().length == 0){
+										val.delete('color empty')
+											.catch(console.error)
+									}
+								}).catch(err=>console.log(err))
+						})
+					
+						if(!guild.roles.find('name', head(args))){
+							guild.createRole({
+								name: head(args),
+								color: head(args),
+								position: 4
+							})
+							.then(role => {
+								return giveColor(msg, role, msg.member)
+							})
+						}else{
+							return giveColor(msg,guild.roles.find('name', head(args)),msg.member)
+						}
+						break;
+					}
+
+					const colorn = args.join(' ')
+					let color = cget(colorn)
+					
+					if( !color ) return msg.reply(`\`\`${colorn}\`\` is not a valid CSS3 color.`)
+
+					msg.member.roles.array().forEach((val,i) => {
+						if(val.name.substr(0,1) != '#' && !cget(val.name)) return
+						//has a color
+						msg.member.removeRole(val)
+							.then(() => {
+								if(val.members.array().length == 0){
+									val.delete('color empty')
+										.catch(console.error)
+								}
+							}).catch(err=>console.log(err))
+					})
+					
+					if(!guild.roles.find('name', color.name)){
+						guild.createRole({
+							name: color.name,
+							color: color.value,
+							position: 4
+						})
+						.then(role => {
+							return giveColor(msg, role, msg.member)
+						})
+					}else{
+						return giveColor(msg, guild.roles.find('name', color.name), msg.member)
+					}
+
+					break;
+				case '!cremove':
+				msg.member.roles.array().forEach((val,i) => {
+					if(!cget(val.name)) return
+					//has a color
+					msg.member.removeRole(val)
+						.then(() => {
+							if(val.members.array().length > 0) return
+							val.delete('color empty')
+								.catch(console.error)
+						})
+					})
+					msg.channel.send(`All colors removed from ${msg.author}!`)
+					break;
+				case '!prole':
+					msg.channel.send(`Removed \`\`${pruneEmpty(msg)}\`\` roles.`)
+					break;
 			}
 		})
 	}
 
 	private stream(info) {
 		let stream = ytdl(`https://www.youtube.com/watch?v=${info.video_id}`, { filter: 'audioonly'})
-		this.dispatcher = this.connection.playStream(stream, {seek:0, volume: 1})
+		this.dispatcher = this.connection.playStream(stream, {seek:0, volume: this.volume})
 		console.log(`playing ${info.title}`)
 		this.dispatcher.on('end', y => {
 			if (y === 'Stream is not generating quickly enough.') console.log('Song ended.');
-			if(this.loop) return this.stream(head(this.get()))
+			if(this.loop) {
+				if(this.connection.channel.members.array().length > 0) {
+					return this.stream(head(this.get()))
+				}
+				this.loop = false
+			}
 			let nq = this.getNext()
 			console.log(nq.length, nq)
 			if (nq.length > 0) {
@@ -242,19 +364,19 @@ class Radio extends Queue {
 	private addMessage(args: string[], msg: any, first = false) : void{
 		this.add(head(args), msg.author.username)
 			.then(info => {
-				let embed = new Discord.RichEmbed({
+				let embed = new RichEmbed({
 					author: {
 						name: info.title,
 						icon_url: msg.author.avatarURL
 					},
-					color: 0o0,
-					description: truncate(info.description, { length: 80 }),
+					color: parseInt(info.c.replace('#',''), 16),
+					description: `[*link*](https://www.youtube.com/watch?v=${info.video_id})\n${truncate(info.description, { length: 80 })}`,
 					fields: [{
 						name: 'Length',
 						value: this.lengthReadable(info.length_seconds)
 					}],
 					thumbnail: {
-						url: `https://img.youtube.com/vi/${info.video_id}/maxresdefault.jpg`
+						url: `https://i.ytimg.com/vi/${info.video_id}/mqdefault.jpg`
 					}
 				});
 				if(first) this.stream(info)
@@ -263,5 +385,4 @@ class Radio extends Queue {
 	}
 }
 
-const radio = new Radio(client, process.env.TOKEN, process.env.voiceID, process.env.textID)
-
+new Radio(client, process.env.TOKEN, process.env.voiceID, process.env.textID)
