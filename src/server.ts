@@ -337,6 +337,9 @@ class Radio extends Queue {
 				case '!prole':
 					msg.channel.send(`Removed \`\`${pruneEmpty(msg)}\`\` roles.`)
 					break;
+				case '!github':
+					msg.reply(`my author fel is bad coder man don't bully me. https://github.com/fel1n3/felradio`)
+					break;
 			}
 		})
 	}
